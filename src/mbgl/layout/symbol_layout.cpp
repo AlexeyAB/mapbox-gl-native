@@ -515,8 +515,8 @@ void SymbolLayout::addToDebugBuffers(CollisionTile& collisionTile, SymbolBucket&
                 bl = util::matrixMultiply(collisionTile.reverseRotationMatrix, bl);
                 br = util::matrixMultiply(collisionTile.reverseRotationMatrix, br);
 
-                const float maxZoom = util::clamp(zoom + log(box.maxScale) / log(2), util::MIN_ZOOM, util::MAX_ZOOM);
-                const float placementZoom = util::clamp(zoom + log(box.placementScale) / log(2), util::MIN_ZOOM, util::MAX_ZOOM);
+                const float maxZoom = util::clamp(zoom + util::log2(box.maxScale), util::MIN_ZOOM, util::MAX_ZOOM);
+                const float placementZoom = util::clamp(zoom + util::log2(box.placementScale), util::MIN_ZOOM, util::MAX_ZOOM);
 
                 collisionBox.vertices.emplace_back(anchor.x, anchor.y, tl.x, tl.y, maxZoom, placementZoom);
                 collisionBox.vertices.emplace_back(anchor.x, anchor.y, tr.x, tr.y, maxZoom, placementZoom);

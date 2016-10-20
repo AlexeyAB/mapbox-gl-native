@@ -120,7 +120,7 @@ double TransformState::pixel_y() const {
 #pragma mark - Zoom
 
 double TransformState::getZoom() const {
-    return std::log(scale) / M_LN2;
+    return scaleZoom(scale);
 }
 
 int32_t TransformState::getIntegerZoom() const {
