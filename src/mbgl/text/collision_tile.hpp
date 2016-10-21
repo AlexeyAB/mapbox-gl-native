@@ -19,6 +19,7 @@
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
+#include <boost/geometry/geometries/polygon.hpp>
 #include <boost/geometry/geometries/box.hpp>
 #include <boost/geometry/index/rtree.hpp>
 #pragma GCC diagnostic pop
@@ -29,6 +30,7 @@ namespace bg = boost::geometry;
 namespace bgm = bg::model;
 namespace bgi = bg::index;
 typedef bgm::point<float, 2, bg::cs::cartesian> CollisionPoint;
+typedef bgm::polygon<CollisionPoint> BGMPolygon;
 typedef bgm::box<CollisionPoint> Box;
 typedef std::tuple<Box, CollisionBox, IndexedSubfeature> CollisionTreeBox;
 typedef bgi::rtree<CollisionTreeBox, bgi::linear<16, 4>> Tree;

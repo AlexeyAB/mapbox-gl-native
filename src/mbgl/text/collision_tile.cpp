@@ -149,48 +149,71 @@ Box CollisionTile::getTreeBox(const Point<float>& anchor, const CollisionBox& bo
 }
 
 std::vector<IndexedSubfeature> CollisionTile::queryRenderedSymbols(const GeometryCoordinates& queryGeometry, float scale) {
-
     std::vector<IndexedSubfeature> result;
-    if (queryGeometry.empty()) return result;
+    if (queryGeometry.empty() || (tree.empty() && ignoredTree.empty())) {
+        return result;
+    }
 
+    // Account for the rounding done when updating symbol shader variables.
+    float zoom = util::log2(scale);
+    zoom = std::ceil(zoom * 10.0f) / 10.0f;
+    scale = std::pow(2.0f, zoom);
+
+    // Generate a rotated geometry out of the original query geometry.
+    // Scale has already been handled by the prior conversions.
+    BGMPolygon polygon;
+    for (const auto& point : queryGeometry) {
+        auto rotated = util::matrixMultiply(rotationMatrix, convertPoint<float>(point));
+        boost::geometry::append(polygon, CollisionPoint { rotated.x, rotated.y });
+    }
+
+    // Predicate for ruling out already seen features.
     std::unordered_map<std::string, std::unordered_set<std::size_t>> sourceLayerFeatures;
+    auto checkedFeature = [&] (const CollisionTreeBox& collisionBox) -> bool {
+        const auto& indexedFeature = std::get<2>(collisionBox);
+        const auto& seenFeatures = sourceLayerFeatures[indexedFeature.sourceLayerName];
+        return seenFeatures.find(indexedFeature.index) == seenFeatures.end();
+    };
 
-    mapbox::geometry::multi_point<float> rotatedPoints {};
-    rotatedPoints.reserve(queryGeometry.size());
-    std::transform(queryGeometry.cbegin(), queryGeometry.cend(), std::back_inserter(rotatedPoints),
-                   [&](const auto& c) { return util::matrixMultiply(rotationMatrix, convertPoint<float>(c)); });
-    const auto box = mapbox::geometry::envelope(rotatedPoints);
+    // Check if feature is rendered (collision free) at current scale.
+    auto collisionFreeAtScale = [&] (const CollisionTreeBox& collisionBox) -> bool {
+        const CollisionBox& blocking = std::get<1>(collisionBox);
+        return scale >= blocking.placementScale && scale <= blocking.maxScale;
+    };
 
-    const auto& anchor = box.min;
-    CollisionBox queryBox(anchor, 0, 0, box.max.x - box.min.x, box.max.y - box.min.y, scale);
-    auto predicates = bgi::intersects(getTreeBox(anchor, queryBox));
-
-    auto fn = [&] (const Tree& tree_, bool ignorePlacement) {
-        for (auto it = tree_.qbegin(predicates); it != tree_.qend(); ++it) {
-            const CollisionBox& blocking = std::get<1>(*it);
-            const IndexedSubfeature& indexedFeature = std::get<2>(*it);
-
-            auto& seenFeatures = sourceLayerFeatures[indexedFeature.sourceLayerName];
-            if (seenFeatures.find(indexedFeature.index) == seenFeatures.end()) {
-                if (ignorePlacement) {
-                    seenFeatures.insert(indexedFeature.index);
-                    result.push_back(indexedFeature);
-                } else {
-                    auto blockingAnchor = util::matrixMultiply(rotationMatrix, blocking.anchor);
-                    float minPlacementScale = findPlacementScale(anchor, queryBox, blockingAnchor, blocking);
-                    if (minPlacementScale >= scale) {
-                        seenFeatures.insert(indexedFeature.index);
-                        result.push_back(indexedFeature);
-                    }
-                }
+    // Check if query polygon intersects with the feature box at current scale.
+    auto intersectPolygonAtScale = [&polygon, &scale] (const CollisionTreeBox& collisionBox) -> bool {
+        const Box& featureBox = std::get<0>(collisionBox);
+        const auto anchor = bg::return_centroid<CollisionPoint>(featureBox);
+        auto unscaledBox = Box {
+            CollisionPoint {
+                anchor.get<0>() - ((anchor.get<0>() - featureBox.min_corner().get<0>()) / scale),
+                anchor.get<1>() - ((anchor.get<1>() - featureBox.min_corner().get<1>()) / scale),
+            },
+            CollisionPoint {
+                anchor.get<0>() + ((featureBox.max_corner().get<0>() - anchor.get<0>()) / scale),
+                anchor.get<1>() + ((featureBox.max_corner().get<1>() - anchor.get<1>()) / scale),
             }
+        };
+        return bg::intersects(polygon, unscaledBox);
+    };
+
+    // Predicates used when querying each collision box tree.
+    auto predicates = bgi::satisfies(checkedFeature)
+                   && bgi::satisfies(collisionFreeAtScale)
+                   && bgi::satisfies(intersectPolygonAtScale);
+
+    auto intersectRenderableAtScale = [&] (const Tree& tree_) {
+        for (auto it = tree_.qbegin(predicates); it != tree_.qend(); ++it) {
+            const auto& indexedFeature = std::get<2>(*it);
+            auto& seenFeatures = sourceLayerFeatures[indexedFeature.sourceLayerName];
+            seenFeatures.insert(indexedFeature.index);
+            result.push_back(indexedFeature);
         }
     };
 
-    bool ignorePlacement = false;
-    fn(tree, ignorePlacement);
-    ignorePlacement = true;
-    fn(ignoredTree, ignorePlacement);
+    intersectRenderableAtScale(tree);
+    intersectRenderableAtScale(ignoredTree);
 
     return result;
 }
